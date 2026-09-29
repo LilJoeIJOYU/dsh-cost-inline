@@ -1,0 +1,2 @@
+# Keep one line ending in the repository and in checkouts, whatever the platform.
+* text=auto eol=lf

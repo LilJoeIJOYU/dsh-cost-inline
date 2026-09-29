@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Cost Meter",
+    "description": "Estimated session cost and account balance beside the composer's token usage."
+  }
+}
