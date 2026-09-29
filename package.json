@@ -1,7 +1,16 @@
 {
   "name": "dsh-cost-inline",
   "version": "1.0.0",
-  "description": "A lightweight inline cost and DeepSeek account balance readout inside the composer's existing token-usage panel.",
+  "description": "在已有的 token 用量面板内联显示本会话预估花费与 DeepSeek 账户余额,不额外占用界面位置 | Inline session cost + DeepSeek balance inside the existing token-usage panel, peak/off-peak aware",
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "token-usage",
+    "cost",
+    "balance"
+  ],
   "type": "module",
   "exports": {
     ".": "./index.js",
@@ -32,5 +41,13 @@
     "locale/*.json",
     "README.md"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LilJoeIJOYU/dsh-cost-inline.git"
+  },
+  "homepage": "https://github.com/LilJoeIJOYU/dsh-cost-inline#readme",
+  "bugs": {
+    "url": "https://github.com/LilJoeIJOYU/dsh-cost-inline/issues"
+  }
 }
