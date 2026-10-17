@@ -1,6 +1,6 @@
 {
   "name": "dsh-cost-inline",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "在已有的 token 用量面板内联显示本会话预估花费与 DeepSeek 账户余额,不额外占用界面位置 | Inline session cost + DeepSeek balance inside the existing token-usage panel, peak/off-peak aware",
   "keywords": [
     "deepseek",

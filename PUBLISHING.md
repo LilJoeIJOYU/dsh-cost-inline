@@ -55,7 +55,7 @@ dsh plugin --profile <profile> add <new-name>
   `locale/*.json`, `README.md`.
 - Add a `LICENSE` file (`package.json` already says MIT, but npm expects the text).
 - `engines.dsh` is **declarative only** — current readers do not enforce it — but
-  it documents the tested runtime, which for this package is `0.2.0-rc.2`.
+  it documents the tested runtime, which for this package is `0.2.1-rc.2`.
 - Do **not** add `@deepseek-ai/dsh*` peerDependencies unless the range satisfies
   the running DSH version: the installer's compatibility gate inspects those peers
   and refuses the install with `incompatible-version`.
@@ -128,9 +128,11 @@ Users run `dsh plugin add ./<name>-1.0.0.tgz`.
 
 ## 5. What to tell users
 
-- It works by taking over the composer's `stats` cell — registering the same cell
-  `id` at a lower `priority`, which is the documented way to occupy an existing
-  cell. A DSH update could rename that cell.
+- It works by taking over the composer dock's `activity` and `usage` cells —
+  registering the same cell `id`s at a lower `priority`, which is the documented
+  way to occupy an existing cell. A DSH update could rename those cells again;
+  0.2.1 already split the old single `stats` cell into them, which is why 1.0.0
+  stopped working.
 - Its panel reuses the host's own label keys for token wording
   (`chat:stats.*`, `chat:message.turnUsage.*`, `chat:duration.*`). Those are not a
   public contract.

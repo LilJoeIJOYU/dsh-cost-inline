@@ -1,12 +1,16 @@
 /**
  * Cost meter, Client half.
  *
- * Takes over the composer dock's `stats` cell — the token-usage pills the Chat
- * plugin registers there — by registering the same cell `id` at a lower
- * `priority`, which is the documented way to occupy an existing cell. Nothing
- * new is added to the composer's layout: the two pills keep their exact
- * position, and the money lives inside the panel that the token-usage pill
- * already opens.
+ * Takes over the composer dock's two readout cells — `activity` (the time pill)
+ * and `usage` (the token pill) — by registering each of those cell `id`s at a
+ * lower `priority`, which makes this plugin's entry the head of each cell and
+ * shadows the shipped one. Nothing new is added to the composer's layout: the
+ * two pills keep their exact positions, and the money lives inside the panel
+ * that the token-usage pill already opens.
+ *
+ * The 0.2.1 harness split the dock's single `stats` cell into these two cells;
+ * registering `stats` there no longer shadows anything, so it printed a second
+ * copy of the readout row under the shipped one.
  *
  * The panel gains a "cost & balance" section with two independent money figures:
  *
@@ -40,10 +44,12 @@ window.__ModuleLoader__.load({
 		/** Locale namespace this plugin registers its display text under. */
 		const NS = 'cost-meter';
 		/**
-		 * Account calls carry the calling build's version. The account Remote
-		 * forwards it only as Platform client metadata, so a constant is safe.
+		 * Account calls carry the calling build's version. The page's boot graph
+		 * publishes the running release, so read it from there rather than freezing a
+		 * version that the next harness update would leave stale; the literal is only
+		 * the fallback for a page that carries no boot graph.
 		 */
-		const CLIENT_VERSION = '0.2.0-rc.2';
+		const CLIENT_VERSION = globalThis.__DSH_BOOT__?.release?.version ?? '0.2.1-rc.2';
 		/** Shortest interval between two automatic balance reads, in ms. */
 		const BALANCE_MIN_INTERVAL_MS = 5000;
 		/** Viewport margin the panel clamp keeps. */
@@ -84,9 +90,8 @@ window.__ModuleLoader__.load({
 		 * takeover follows the active theme and content font size.
 		 */
 		const CSS = [
-			'.cmtr_root{box-sizing:border-box;min-width:0;max-width:100%;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px));justify-content:center;gap:12px;display:flex}',
-			'.cmtr_anchor{min-width:0;display:inline-flex}',
-			'.cmtr_pill{box-sizing:border-box;corner-shape:round;max-width:100%;color:var(--dsw-alias-label-tertiary);font:inherit;font-variant-numeric:tabular-nums;line-height:inherit;white-space:nowrap;background:0 0;border:none;border-radius:999px;align-items:center;gap:6px;padding:1px 8px;display:inline-flex}',
+			'.cmtr_anchor{box-sizing:border-box;min-width:0;max-width:100%;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px));display:inline-flex}',
+			'.cmtr_pill{box-sizing:border-box;border-radius:var(--dsw-radius-sm);max-width:100%;color:var(--dsw-alias-label-tertiary);font:inherit;font-variant-numeric:tabular-nums;line-height:inherit;white-space:nowrap;background:0 0;border:none;align-items:center;gap:6px;padding:1px 8px;display:inline-flex}',
 			'.cmtr_pill svg{flex:none;width:14px;height:14px}',
 			'button.cmtr_pill{cursor:pointer}',
 			'button.cmtr_pill:hover,button.cmtr_pill[aria-expanded=true]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}',
@@ -592,6 +597,34 @@ window.__ModuleLoader__.load({
 			return value;
 		}
 
+		/**
+		 * Which dock panel is open, shared by the two independent cells so that at
+		 * most one panel is open at a time — the shipped pills behave the same way
+		 * even though they are separate registrations.
+		 */
+		let openPillId = null;
+		const openPillListeners = new Set();
+
+		function setOpenPillId(next) {
+			if (openPillId === next) return;
+			openPillId = next;
+			for (const listener of [...openPillListeners]) listener();
+		}
+
+		/** Subscribe one cell to the shared open-panel seat. */
+		function useOpenPill() {
+			const [value, setValue] = useState(openPillId);
+			useEffect(() => {
+				const listener = () => setValue(openPillId);
+				openPillListeners.add(listener);
+				listener();
+				return () => {
+					openPillListeners.delete(listener);
+				};
+			}, []);
+			return [value, setOpenPillId];
+		}
+
 		/** Re-render on a locale switch without the registration-time locale seat. */
 		function useLocaleRevision(locale) {
 			const [revision, setRevision] = useState(0);
@@ -712,6 +745,8 @@ window.__ModuleLoader__.load({
 				};
 			}, 'cost-meter: styles');
 			const balanceStore = createBalanceStore(ctx);
+			/* A panel left open when the plugin unloads must not reopen on the next load. */
+			ctx.effect(() => () => setOpenPillId(null), 'cost-meter: open panel');
 			/*
 			 * The account Remote namespace is a service named `remote.account`, so it
 			 * must be resolved through an injection. It is claimed with `ctx.inject`
@@ -804,31 +839,17 @@ window.__ModuleLoader__.load({
 			}
 
 			/**
-			 * The taken-over `stats` cell: the session's time pill and its token-usage
-			 * pill, the second of which carries the cost and balance section.
+			 * The taken-over `activity` cell: the session's time pill. The shipped Chat
+			 * plugin registers this cell at priority 0; this entry registers the same
+			 * id at priority -1, so it becomes the cell head and the pill keeps the
+			 * shipped position instead of adding a second readout row.
 			 */
-			function StatsRow(props) {
+			function ActivityCell(props) {
 				const t = props.t;
-				const usage = readProjection(props.useProjection, 'tokenUsage');
 				const stats = readProjection(props.useProjection, 'sessionStats');
-				const selection = readProjection(props.useProjection, 'modelSelection');
-				const nodes = readChatNodes(props.useChat);
-				const balance = useBalance(balanceStore);
-				const [openPill, setOpenPill] = useState(null);
-
-				const totalTokens = usageTotal(usage);
-				useEffect(() => {
-					if (totalTokens > 0) balanceStore.refresh();
-				}, [totalTokens]);
+				const [openPill, setOpenPill] = useOpenPill();
 
 				const hasStats = stats !== undefined && stats !== null && (stats.steps ?? 0) > 0;
-				const hasUsage = usageTotal(usage) > 0;
-
-				/* Unit prices are published constants; every step is priced at the tier
-				   in force at its own timestamp, not at whatever the clock reads now. */
-				const table = PRICING[pickModelId(selection)] ?? PRICING[DEFAULT_MODEL];
-				const pricing = priceByTier(usage, foldStepsByTier(nodes), table);
-
 				const tps =
 					hasStats && (stats.decodeMs ?? 0) > 0
 						? formatTokensPerSecond(stats.decodeTokens / (stats.decodeMs / 1e3))
@@ -859,6 +880,48 @@ window.__ModuleLoader__.load({
 						].filter((row) => row !== null)
 					: [];
 
+				if (!hasStats) return null;
+				return h(StatPill, {
+					pillId: 'activity',
+					openPill,
+					setOpenPill,
+					icon: GaugeMark,
+					label: timeLabel,
+					ariaLabel: tps === null ? counts : `${counts} · ${tps}`,
+					panelTitle: t('stats.dialog.title'),
+					titleValue: null,
+					detailsClass: 'cmtr_details',
+					rows: timeRows
+				});
+			}
+
+			/**
+			 * The taken-over `usage` cell: the token pill, whose panel carries the cost
+			 * and balance section. Registered exactly like `activity`.
+			 */
+			function UsageCell(props) {
+				const t = props.t;
+				const usage = readProjection(props.useProjection, 'tokenUsage');
+				const selection = readProjection(props.useProjection, 'modelSelection');
+				const nodes = readChatNodes(props.useChat);
+				const balance = useBalance(balanceStore);
+				const [openPill, setOpenPill] = useOpenPill();
+
+				const totalTokens = usageTotal(usage);
+				useEffect(() => {
+					if (totalTokens > 0) balanceStore.refresh();
+				}, [totalTokens]);
+
+				/* Match the shipped UsagePill's visibility rule: nothing is shown until
+				   the session has billed input or output. */
+				const hasUsage =
+					usage !== undefined && usage !== null && (billedInputTokens(usage) !== 0 || (usage.outputTokens ?? 0) !== 0);
+
+				/* Unit prices are published constants; every step is priced at the tier
+				   in force at its own timestamp, not at whatever the clock reads now. */
+				const table = PRICING[pickModelId(selection)] ?? PRICING[DEFAULT_MODEL];
+				const pricing = priceByTier(usage, foldStepsByTier(nodes), table);
+
 				const cacheHit = hasUsage ? formatCacheHitPercent(usage.cacheReadTokens, billedInputTokens(usage)) : null;
 				const totalText = t('message.turnUsage.count', { count: formatTokens(totalTokens, t) });
 				const usageRows = [
@@ -871,58 +934,35 @@ window.__ModuleLoader__.load({
 					detailRow('output', t('message.turnUsage.output'), t('message.turnUsage.count', { count: formatExactTokens(usage?.outputTokens ?? 0, t) }))
 				].filter((row) => row !== null);
 
-				if (!hasStats && !hasUsage) return null;
-
-				return h(
-					'div',
-					{ className: 'cmtr_root', 'data-composer-stats': true },
-					hasStats
-						? h(StatPill, {
-								key: 'time',
-								pillId: 'time',
-								openPill,
-								setOpenPill,
-								icon: GaugeMark,
-								label: timeLabel,
-								ariaLabel: tps === null ? counts : `${counts} · ${tps}`,
-								panelTitle: t('stats.dialog.title'),
-								titleValue: null,
-								detailsClass: 'cmtr_details',
-								rows: timeRows
-							})
-						: null,
-					hasUsage
-						? h(StatPill, {
-								key: 'usage',
-								pillId: 'usage',
-								openPill,
-								setOpenPill,
-								icon: DatabaseMark,
-								label:
-									cacheHit === null
-										? [totalText]
-										: [
-												totalText,
-												h('span', { key: 'sep', className: 'cmtr_sep', 'aria-hidden': true }, '·'),
-												t('stats.cacheHit', { percent: cacheHit })
-											],
-								ariaLabel: cacheHit === null ? totalText : `${totalText} · ${t('stats.cacheHit', { percent: cacheHit })}`,
-								panelTitle: t('stats.dialog.usageTitle'),
-								titleValue: t('message.turnUsage.count', { count: formatExactTokens(totalTokens, t) }),
-								detailsClass: 'cmtr_details',
-								rows: usageRows,
-								extra: h(MoneySection, {
-									balance,
-									t,
-									store: balanceStore,
-									table,
-									tierCost: pricing.cost,
-									tierExact: pricing.exact,
-									peakShare: pricing.peakShare
-								})
-							})
-						: null
-				);
+				if (!hasUsage) return null;
+				return h(StatPill, {
+					pillId: 'usage',
+					openPill,
+					setOpenPill,
+					icon: DatabaseMark,
+					label:
+						cacheHit === null
+							? [totalText]
+							: [
+									totalText,
+									h('span', { key: 'sep', className: 'cmtr_sep', 'aria-hidden': true }, '·'),
+									t('stats.cacheHit', { percent: cacheHit })
+								],
+					ariaLabel: cacheHit === null ? totalText : `${totalText} · ${t('stats.cacheHit', { percent: cacheHit })}`,
+					panelTitle: t('stats.dialog.usageTitle'),
+					titleValue: t('message.turnUsage.count', { count: formatExactTokens(totalTokens, t) }),
+					detailsClass: 'cmtr_details',
+					rows: usageRows,
+					extra: h(MoneySection, {
+						balance,
+						t,
+						store: balanceStore,
+						table,
+						tierCost: pricing.cost,
+						tierExact: pricing.exact,
+						peakShare: pricing.peakShare
+					})
+				});
 			}
 
 			/** One `<dt>/<dd>` pair of a details grid. */
@@ -1013,28 +1053,33 @@ window.__ModuleLoader__.load({
 				);
 			}
 
-			ctx.slots.inject('conversation.composer.dock', () =>
-				ctx.slots.register(
-					{
-						name: 'conversation.composer.dock',
-						/* Same cell as the shipped readout, at a lower priority so this
-						   head wins and nothing new is added to the composer's layout. */
-						id: 'stats',
-						order: 0,
-						priority: -1,
-						label: () => t('stats.dialog.usageTitle')
-					},
-					StatsRowWrapped
-				)
-			);
+			ctx.slots.inject('conversation.composer.dock', function* () {
+				/* The harness splits the dock readout into two cells (`activity` and
+				   `usage`); taking over both at priority -1 keeps each pill in its
+				   shipped position and adds no second row to the composer layout. */
+				yield ctx.slots.register(
+					{ name: 'conversation.composer.dock', id: 'activity', order: 0, priority: -1 },
+					ActivityCellWrapped
+				);
+				yield ctx.slots.register(
+					{ name: 'conversation.composer.dock', id: 'usage', order: 1, priority: -1 },
+					UsageCellWrapped
+				);
+			});
 
 			/**
-			 * Locale- and balance-aware wrapper: `t` follows locale switches, and the
-			 * store is bound before the row renders.
+			 * Locale-aware wrapper: `t` follows locale switches, and the store is bound
+			 * before the cell renders.
 			 */
-			function StatsRowWrapped(props) {
+			function ActivityCellWrapped(props) {
 				useLocaleRevision(ctx.locale);
-				return h(StatsRow, { ...props, t });
+				return h(ActivityCell, { ...props, t });
+			}
+
+			/** Locale-aware wrapper for the token cell. */
+			function UsageCellWrapped(props) {
+				useLocaleRevision(ctx.locale);
+				return h(UsageCell, { ...props, t });
 			}
 		}
 

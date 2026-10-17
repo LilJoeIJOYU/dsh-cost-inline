@@ -17,12 +17,15 @@ before anyone else can install it.
 
 ## What it does
 
-The composer dock's token-usage pills (the host's `StatsPills`, registered under
-the cell id `stats` in `conversation.composer.dock`) are taken over by
-registering that same cell id at a lower `priority`. `SlotCore` sorts entries by
-`priority` and renders the lowest as the cell head, so this plugin becomes the
-head and the shipped entry is shadowed. The layout is unchanged: the same two
-pills in the same place.
+The composer dock's readout — the host's `activity` (time) and `usage` (tokens)
+cells in `conversation.composer.dock` — is taken over by registering each of
+those cell ids at a lower `priority`. `SlotCore` sorts entries by `priority` and
+renders the lowest as the cell head, so this plugin becomes the head of both
+cells and the shipped entries are shadowed. The layout is unchanged: the same
+two pills in the same place.
+
+Harness **0.2.1** split the old single `stats` cell into those two cells; this
+version targets the split ids. On a 0.2.0 harness, use the `1.0.0` commit.
 
 Clicking the token-usage pill opens the panel it always opened, which now ends
 with a **花费与余额 / Cost & balance** section:
@@ -118,16 +121,16 @@ a silent no-op.
 | `package.json` | Bundle manifest: `dsh.bundle.patch` makes it installable, `dsh.client` declares the browser half. |
 | `cordis.patch.yml` | Inserts the single row `cost-meter` → `dsh-cost-inline`. |
 | `index.js` | Host half. Intentionally empty: nothing runs off the browser. |
-| `client.js` | Everything: the `stats` takeover, the pills and panels, the rates, the tier pricing, the balance read. |
+| `client.js` | Everything: the two-cell takeover, the pills and panels, the rates, the tier pricing, the balance read. |
 | `locale/{en,zh}.json` | Title and description shown on the Plugins page. |
 
 ## Failure behaviour
 
 A registration that throws during render is retired from its cell by the host.
 This plugin leans on that deliberately, and on a second property of the design:
-because the shipped `StatsPills` stays registered in the same cell at
-`priority: 0`, **a crash here falls back to the stock readout** instead of an
-empty slot. There is no state in which this plugin can leave the composer
+because the shipped entries stay registered in the same cells at `priority: 0`
+(one `activity` pill and one `usage` pill), **a crash here falls back to the
+stock readout** instead of an empty slot. There is no state in which this plugin can leave the composer
 without its token usage.
 
 The estimate needs no network and no account, so it keeps working whatever the
